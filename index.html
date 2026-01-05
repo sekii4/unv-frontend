@@ -496,7 +496,9 @@
             </select>
 
             <label>Grad</label>
-            <select><option>Sarajevo</option><option>Mostar</option></select>
+            <!-- <select><option>Sarajevo</option><option>Mostar</option></select> -->
+            <select id="cityFilter"><option value="all">Sve</option><option value="Sarajevo">Sarajevo</option><option value="Mostar">Mostar</option></select>
+
 
             <label>Vrijednost imovine (BAM)</label>
             <input type="range" min="0" max="1000000" value="500000" id="priceRange">
@@ -642,6 +644,14 @@
         const searchBtn = document.getElementById('searchBtn');
         const sidebarSearch = document.getElementById('sidebarSearch');
         const priceRange = document.getElementById('priceRange');
+        const typeFilter = document.getElementById('typeFilter');
+        const cityFilter = document.getElementById('cityFilter');
+        const sortSelect = document.getElementById('sortSelect');
+        const grid = document.getElementById('propertyGrid');
+
+        // Save original order for "Relevantnosti"
+        const allCards = Array.from(document.querySelectorAll('.card'));
+        allCards.forEach((card, i) => card.dataset.originalIndex = i);
 
         // Pomoćne funkcije
         function getActiveCategory() {
@@ -649,67 +659,121 @@
             return el ? el.getAttribute('data-category') : 'all';
         }
 
+        function setActiveCategoryButton(cat) {
+            document.querySelectorAll('.category-buttons button').forEach(b => {
+                b.classList.toggle('active', b.getAttribute('data-category') === cat);
+            });
+        }
+
         function updateVisibility() {
             const query = (searchInput.value || '').trim().toLowerCase();
             const activeCategory = getActiveCategory();
+            const sidebarType = (typeFilter && typeFilter.value) || 'all';
+            const city = (cityFilter && cityFilter.value) || 'all';
             const maxPrice = parseInt(priceRange ? priceRange.value : NaN);
-            const cards = document.querySelectorAll('.card');
-            let visibleCount = 0;
+
+            const cards = Array.from(document.querySelectorAll('.card'));
+            let visibleCards = [];
 
             cards.forEach(card => {
                 const text = (card.textContent || '').toLowerCase();
                 const matchesQuery = query === '' || text.includes(query);
                 const cardCategory = card.getAttribute('data-category') || '';
-                const matchesCategory = (activeCategory === 'all' || cardCategory === activeCategory);
+                const matchesCategory = (activeCategory === 'all' || cardCategory === activeCategory) &&
+                                        (sidebarType === 'all' || cardCategory === sidebarType);
                 const price = parseInt(card.getAttribute('data-price')) || 0;
                 const matchesPrice = isNaN(maxPrice) ? true : price <= maxPrice;
+                const matchesCity = (city === 'all') || text.includes(city.toLowerCase());
 
-                const show = matchesQuery && matchesCategory && matchesPrice;
+                const show = matchesQuery && matchesCategory && matchesPrice && matchesCity;
                 card.style.display = show ? 'block' : 'none';
-                if (show) visibleCount++;
+                if (show) visibleCards.push(card);
             });
 
-            document.getElementById('resultCount').textContent = visibleCount + ' Rezultata';
+            // Sort visibleCards according to sortSelect
+            const sortVal = sortSelect ? sortSelect.value : '';
+            if (sortVal.includes('Cijena: rastući')) {
+                visibleCards.sort((a,b) => (parseInt(a.dataset.price)||0) - (parseInt(b.dataset.price)||0));
+            } else if (sortVal.includes('Cijena: opadajući')) {
+                visibleCards.sort((a,b) => (parseInt(b.dataset.price)||0) - (parseInt(a.dataset.price)||0));
+            } else {
+                // Relevantnosti -> original order
+                visibleCards.sort((a,b) => (parseInt(a.dataset.originalIndex)||0) - (parseInt(b.dataset.originalIndex)||0));
+            }
+
+            // Re-append in sorted order to preserve layout
+            visibleCards.forEach(c => grid.appendChild(c));
+
+            document.getElementById('resultCount').textContent = visibleCards.length + ' Rezultata';
         }
 
-        // Kategorije - samo promijeni aktivnu i updateVisibility
+        // Kategorije - sinhronizacija s sidebar selectom
         document.querySelectorAll('.category-buttons button').forEach(btn => {
             btn.addEventListener('click', () => {
                 document.querySelectorAll('.category-buttons button').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
+                // sync sidebar type select
+                if (typeFilter) typeFilter.value = btn.getAttribute('data-category') || 'all';
                 updateVisibility();
             });
         });
 
+        // Sidebar select promjene
+        if (typeFilter) {
+            typeFilter.addEventListener('change', () => {
+                // sync category buttons
+                setActiveCategoryButton(typeFilter.value);
+                updateVisibility();
+            });
+        }
+
+        if (cityFilter) {
+            cityFilter.addEventListener('change', () => updateVisibility());
+        }
+
+        if (sortSelect) {
+            sortSelect.addEventListener('change', () => updateVisibility());
+        }
+
         // Live search u hero i sidebar (sinhronizirano)
-        searchInput.addEventListener('input', () => {
-            // sinhroniziraj sidebar polje ako treba
-            if (sidebarSearch && sidebarSearch.value !== searchInput.value) sidebarSearch.value = searchInput.value;
-            updateVisibility();
-        });
+        if (searchInput) {
+            searchInput.addEventListener('input', () => {
+                if (sidebarSearch && sidebarSearch.value !== searchInput.value) sidebarSearch.value = searchInput.value;
+                updateVisibility();
+            });
 
-        searchInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') updateVisibility();
-        });
+            searchInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') updateVisibility();
+            });
+        }
 
-        searchBtn.addEventListener('click', () => updateVisibility());
+        if (searchBtn) searchBtn.addEventListener('click', () => updateVisibility());
 
-        sidebarSearch.addEventListener('input', (e) => {
-            // kad se unosi u sidebar, prebaci u hero input i uradi pretragu
-            if (searchInput.value !== e.target.value) searchInput.value = e.target.value;
-            updateVisibility();
-        });
+        if (sidebarSearch) {
+            sidebarSearch.addEventListener('input', (e) => {
+                if (searchInput && searchInput.value !== e.target.value) searchInput.value = e.target.value;
+                updateVisibility();
+            });
+        }
 
         // Slider za cijenu -> koristi istu logiku
-        priceRange.addEventListener('input', () => {
-            const value = parseInt(priceRange.value).toLocaleString();
-            document.getElementById('priceValue').textContent = value + ' BAM';
+        if (priceRange) {
+            priceRange.addEventListener('input', () => {
+                const value = parseInt(priceRange.value).toLocaleString();
+                document.getElementById('priceValue').textContent = value + ' BAM';
+                updateVisibility();
+            });
+        }
+
+        // Inicijalno prikaži sve i postavi početne vrijednosti
+        window.addEventListener('DOMContentLoaded', () => {
+            // postavi sidebar type na aktivnu kategoriju (ako je)
+            const activeCat = getActiveCategory();
+            if (typeFilter) typeFilter.value = activeCat;
+            // postavi price value display
+            if (priceRange) document.getElementById('priceValue').textContent = parseInt(priceRange.value).toLocaleString() + ' BAM';
             updateVisibility();
         });
-
-        // Inicijalno prikaži sve
-        window.addEventListener('DOMContentLoaded', updateVisibility);
     </script>
-
 </body>
 </html>
